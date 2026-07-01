@@ -1,0 +1,17 @@
+# Build output
+/ward
+/dist/
+*.exe
+
+# Test artifacts
+*.test
+*.out
+coverage.*
+
+# Local secret store used during manual testing
+# (real usage commits .gitward.json; this repo's own dev/test copies should not)
+/.gitward.json
+
+# OS / editor cruft
+.DS_Store
+*.swp

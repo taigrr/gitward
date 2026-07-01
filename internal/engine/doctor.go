@@ -33,12 +33,17 @@ func (e *Engine) Doctor() []Check {
 	checks = append(checks, Check{"base snapshot", berr == nil,
 		condStr(berr == nil, basePath, "will be created on first sync")})
 
-	// Hooks installed.
+	// Hooks installed (in git's effective hooks dir, honoring core.hooksPath).
+	hooksDir, herr := e.HooksDir()
 	for _, h := range hookNames {
-		p := filepath.Join(e.GitDir, "hooks", h)
+		if herr != nil {
+			checks = append(checks, Check{"hook " + h, false, "cannot resolve hooks dir: " + herr.Error()})
+			continue
+		}
+		p := filepath.Join(hooksDir, h)
 		b, err := os.ReadFile(p)
 		ok := err == nil && strings.Contains(string(b), hookMarker)
-		checks = append(checks, Check{"hook " + h, ok, condStr(ok, "installed", "run 'ward install'")})
+		checks = append(checks, Check{"hook " + h, ok, condStr(ok, "installed in "+hooksDir, "run 'ward install'")})
 	}
 
 	// Every recipient wrap decrypts (DEK already recovered if initialized).

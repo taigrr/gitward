@@ -270,8 +270,12 @@ func TestEndToEnd_HooksInstall(t *testing.T) {
 	if err := e.InstallHooks(); err != nil {
 		t.Fatal(err)
 	}
+	hooksDir, err := e.HooksDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	for _, h := range hookNames {
-		p := filepath.Join(e.GitDir, "hooks", h)
+		p := filepath.Join(hooksDir, h)
 		if got := readFile(t, p); !strings.Contains(got, hookMarker) || !strings.Contains(got, "ward hook "+h) {
 			t.Fatalf("hook %s not installed correctly: %q", h, got)
 		}
@@ -287,7 +291,10 @@ func TestEndToEnd_HooksAppendToExisting(t *testing.T) {
 	if err := e.Init(nil, nil, pass); err != nil {
 		t.Fatal(err)
 	}
-	hooksDir := filepath.Join(e.GitDir, "hooks")
+	hooksDir, err := e.HooksDir()
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -302,6 +309,48 @@ func TestEndToEnd_HooksAppendToExisting(t *testing.T) {
 	}
 	if !strings.Contains(got, "ward hook pre-commit") {
 		t.Fatal("ward invocation not appended")
+	}
+}
+
+// TestEndToEnd_HooksHonorCoreHooksPath verifies that install and the doctor
+// hook check both target git's configured core.hooksPath (as used by husky),
+// not the hardcoded .git/hooks.
+func TestEndToEnd_HooksHonorCoreHooksPath(t *testing.T) {
+	dir, repo := newRepo(t)
+	// Point core.hooksPath at a repo-relative .husky directory.
+	cfg, err := repo.Config()
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg.Raw.Section("core").SetOption("hooksPath", ".husky")
+	if err := repo.SetConfig(cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	e := openIn(t, dir)
+	if err := e.Init(nil, nil, pass); err != nil {
+		t.Fatal(err)
+	}
+	if err := e.InstallHooks(); err != nil {
+		t.Fatal(err)
+	}
+
+	// Hooks must land in .husky, NOT .git/hooks.
+	for _, h := range hookNames {
+		p := filepath.Join(dir, ".husky", h)
+		if got := readFile(t, p); !strings.Contains(got, "ward hook "+h) {
+			t.Fatalf("hook %s not installed into .husky: %q", h, got)
+		}
+		if _, err := os.Stat(filepath.Join(e.GitDir, "hooks", h)); err == nil {
+			t.Fatalf("hook %s wrongly written to .git/hooks", h)
+		}
+	}
+
+	// Doctor must report the hooks as installed by looking in .husky.
+	for _, ck := range e.Doctor() {
+		if strings.HasPrefix(ck.Name, "hook ") && !ck.OK {
+			t.Fatalf("doctor reports %s not installed despite core.hooksPath: %s", ck.Name, ck.Info)
+		}
 	}
 }
 

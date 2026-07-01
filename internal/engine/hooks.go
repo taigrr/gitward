@@ -5,6 +5,8 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/taigrr/gitward/internal/gitutil"
 )
 
 // hookNames are the git hooks ward manages.
@@ -17,11 +19,17 @@ const hookMarker = "# gitward-managed"
 // idempotent and preserves any pre-existing non-ward hook body by appending the
 // ward invocation, so it is safe to run from a bun postinstall.
 //
+// Hooks are written to git's effective hooks directory, honoring
+// core.hooksPath (e.g. husky's .husky), not just .git/hooks.
+//
 // The hooks never fail the git operation: `ward hook` exits 0 on recoverable
 // problems (missing key, uninitialized store) after printing a warning, except
 // pre-commit which exits non-zero only on an unresolved conflict.
 func (e *Engine) InstallHooks() error {
-	hooksDir := filepath.Join(e.GitDir, "hooks")
+	hooksDir, err := e.HooksDir()
+	if err != nil {
+		return err
+	}
 	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
 		return err
 	}
@@ -32,6 +40,12 @@ func (e *Engine) InstallHooks() error {
 		}
 	}
 	return nil
+}
+
+// HooksDir returns git's effective hooks directory for this repo, honoring
+// core.hooksPath.
+func (e *Engine) HooksDir() (string, error) {
+	return gitutil.HooksDir(e.Root)
 }
 
 func installOneHook(path, name string) error {

@@ -1,8 +1,8 @@
-<picture>
+<p align="center">
   <img alt="gitward" src="https://github.com/taigrr/gitward/raw/master/docs/mascot.jpg" width="400">
-</picture>
+</p>
 
-<p>
+<p align="center">
   <a href="https://github.com/taigrr/gitward/releases/latest">
     <img alt="Latest release" src="https://img.shields.io/github/v/release/taigrr/gitward?style=for-the-badge&logo=starship&color=FF6AD5&logoColor=D9E0EE&labelColor=302D41&sort=semver&include_prerelease">
   </a>
@@ -53,14 +53,31 @@ ways automatically.
 - 🪝 **Git-hook driven** — `post-checkout`/`post-merge` fan out, `pre-commit` captures back, never blocks except on a real conflict
 - 🔑 **Multiple unlock paths** — age/ssh keys, gpg-agent, or a shared passphrase — any one recovers the data key
 - 🤖 **CI-friendly** — A single `GITWARD_PASSPHRASE` unlocks everything in CI
-- 🧰 **No git binary required** — Repo operations use go-git; only `gpg` is shelled out
+- 🧰 **Worktree-friendly** — Repo discovery avoids config parsing, so `git worktree` and `extensions.worktreeConfig` repos just work
 - 🩺 **Batteries included** — `doctor` checks hooks, recipients, gitignore coverage, and `.example` parity
 
 ## 📦 Installation
 
+### npm
+
+```sh
+npm install -g @taigrr/gitward   # or: bun add -g @taigrr/gitward
+```
+
+The npm package downloads the prebuilt `ward` binary for your platform on
+install (via a `postinstall` script, verified against a sha256 checksum). Use
+`npx @taigrr/gitward` if you prefer not to install globally.
+
+### go install
+
 ```sh
 go install github.com/taigrr/gitward/cmd/ward@latest
 ```
+
+### Binaries
+
+Prebuilt binaries for macOS, Linux, and Windows (amd64/arm64) are attached to
+each [GitHub release](https://github.com/taigrr/gitward/releases).
 
 Then wire the hooks into your repo (idempotent — safe to run from a `bun`/`npm`
 postinstall):
@@ -72,6 +89,7 @@ ward install
 ## ⚡ Requirements
 
 - Go >= **1.26** (to build)
+- `git` on `PATH` (used by the pre-commit hook to stage the store)
 - Optional: `gpg` with gpg-agent (for the gpg unlock path)
 - Optional: an ssh key at `~/.ssh/id_ed25519` or `~/.ssh/id_rsa` (for the ssh unlock path)
 

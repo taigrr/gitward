@@ -1,0 +1,71 @@
+version: 2
+
+project_name: gitward
+
+before:
+  hooks:
+    - go mod tidy
+    - go test ./...
+
+builds:
+  - id: ward
+    main: ./cmd/ward
+    binary: ward
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{ .Version }}
+
+archives:
+  - id: ward
+    ids:
+      - ward
+    formats:
+      - tgz
+    name_template: >-
+      {{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}
+
+# GoReleaser Pro: generate the npm launcher package + per-platform
+# optional-dependency packages and publish them. Users `npm i -g gitward`
+# (or `npx gitward`) and npm pulls only the binary for their platform.
+npms:
+  - id: gitward
+    name: "@taigrr/gitward"
+    description: "Painless, git-tracked, encrypted secrets for your monorepo."
+    homepage: https://github.com/taigrr/gitward
+    repository: https://github.com/taigrr/gitward
+    bugs: https://github.com/taigrr/gitward/issues
+    license: 0BSD
+    author: "Tai Groot <tai@taigrr.com>"
+    keywords:
+      - secrets
+      - env
+      - dotenv
+      - encryption
+      - git
+      - age
+      - sops
+      - cli
+    access: public
+    format: tgz
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  prerelease: auto
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - "^docs:"
+      - "^test:"
+      - "^chore:"

@@ -85,7 +85,7 @@ func TestEndToEnd_InitRegisterSync(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
 
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatalf("Init: %v", err)
 	}
 	if !e.Initialized() {
@@ -115,7 +115,7 @@ func TestEndToEnd_InitRegisterSync(t *testing.T) {
 func TestEndToEnd_StoreToLeafRegenerates(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 
@@ -147,7 +147,7 @@ func TestEndToEnd_StoreToLeafRegenerates(t *testing.T) {
 func TestEndToEnd_LocalEditCapturedToStore(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"apps/z", "development", store.Buildtime}
@@ -180,7 +180,7 @@ func TestEndToEnd_LocalEditCapturedToStore(t *testing.T) {
 func TestEndToEnd_DeletedKeyPropagates(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"apps/d", "_", store.Buildtime}
@@ -209,7 +209,7 @@ func TestEndToEnd_DeletedKeyPropagates(t *testing.T) {
 func TestEndToEnd_ConflictBlocksAndResolves(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"apps/c", "_", store.Buildtime}
@@ -264,7 +264,7 @@ func TestEndToEnd_ConflictBlocksAndResolves(t *testing.T) {
 func TestEndToEnd_HooksInstall(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.InstallHooks(); err != nil {
@@ -288,7 +288,7 @@ func TestEndToEnd_HooksInstall(t *testing.T) {
 func TestEndToEnd_HooksAppendToExisting(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	hooksDir, err := e.HooksDir()
@@ -328,7 +328,7 @@ func TestEndToEnd_HooksHonorCoreHooksPath(t *testing.T) {
 	}
 
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	if err := e.InstallHooks(); err != nil {
@@ -357,7 +357,7 @@ func TestEndToEnd_HooksHonorCoreHooksPath(t *testing.T) {
 func TestEndToEnd_PassphraseRoundTripReopen(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"apps/r", "_", store.Runtime}
@@ -380,7 +380,7 @@ func TestEndToEnd_PassphraseRoundTripReopen(t *testing.T) {
 func TestEndToEnd_StableCiphertextMinimalDiff(t *testing.T) {
 	dir, _ := newRepo(t)
 	e := openIn(t, dir)
-	if err := e.Init(nil, nil, pass); err != nil {
+	if err := e.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"apps/s", "_", store.Buildtime}
@@ -430,7 +430,7 @@ func TestEndToEnd_TwoClonesConflictViaPull(t *testing.T) {
 	}
 
 	eA := openIn(t, aDir)
-	if err := eA.Init(nil, nil, pass); err != nil {
+	if err := eA.Init(nil, pass); err != nil {
 		t.Fatal(err)
 	}
 	cell := Cell{"app", "_", store.Buildtime}

@@ -48,10 +48,12 @@ type Target map[string]EnvBlock // env name -> block
 // Keys holds the wrapped data-encryption-key (DEK) material. Any one wrap can
 // recover the DEK, so a dev may use ssh (age), gpg, or the shared passphrase.
 type Keys struct {
-	// AgeRecipients are the age/ssh recipient lines the DEK is encrypted to.
-	AgeRecipients []string `json:"age_recipients,omitempty"`
-	// PGPFingerprints are the gpg recipients the DEK is encrypted to.
-	PGPFingerprints []string `json:"pgp_fingerprints,omitempty"`
+	// Recipients maps a human-readable name (typically a GitHub username) to
+	// that person's public keys. Each key is either an ssh/age recipient line
+	// ("ssh-ed25519 ...", "ssh-rsa ...", "age1...") or a gpg fingerprint/key id;
+	// the kind is classified at wrap time. Grouping by name keeps diffs and
+	// membership auditing meaningful (who has access, not just which keys).
+	Recipients map[string][]string `json:"recipients,omitempty"`
 	// DEKAge is the age-armored DEK (recoverable by any age/ssh recipient).
 	DEKAge string `json:"dek_age,omitempty"`
 	// DEKPGP is the gpg-encrypted DEK (recoverable via gpg-agent).

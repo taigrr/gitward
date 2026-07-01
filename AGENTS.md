@@ -29,7 +29,11 @@ depends on all):
   (SOPS style, meaningful diffs); values are individually encrypted.
 - `internal/crypto` — envelope encryption: one random DEK (AES-256-GCM per
   value) wrapped 3 ways (age/ssh, gpg, scrypt passphrase); any one unwraps.
-  `RecoverDEK` tries passphrase → ssh → gpg in that order.
+  `RecoverDEK` tries passphrase → ssh → gpg in that order. Recipients are
+  stored grouped by name in `Keys.Recipients` (`map[name][]keys`); each key is
+  classified at wrap time by `isAgeKey` (ssh-ed25519/ssh-rsa/age1 prefix → age
+  wrap, otherwise → gpg fingerprint). One person can hold both an ssh key and a
+  gpg fingerprint under one name.
 - `internal/merge` — the 3-way merge state machine (store S / leaf L / base B).
   Pure, no I/O, heavily unit-tested. This is the correctness core.
 - `internal/leaf` — dotenv parse/serialize + filename convention.

@@ -7,6 +7,8 @@
 // only re-encrypted when their plaintext changes, keeping diffs stable.
 package store
 
+import "sort"
+
 // Tier distinguishes build-time variables (baked into a client bundle, e.g.
 // NEXT_PUBLIC_*) from run-time variables (server/worker secrets pushed to
 // `wrangler secret put`).
@@ -27,8 +29,14 @@ const DefaultEnv = "_"
 // EncValue is a single encrypted variable value. Ciphertext is the armored
 // AES-256-GCM payload; it stays byte-identical across writes when the plaintext
 // is unchanged so the JSON store produces minimal git diffs.
+// EncValue is a single variable entry. For a managed variable Ciphertext is the
+// armored AES-256-GCM payload; it stays byte-identical across writes when the
+// plaintext is unchanged so the JSON store produces minimal git diffs. For a
+// ward-ignored variable Ciphertext is empty and Ignore is true: the variable is
+// recorded so it is never managed, but no value is stored.
 type EncValue struct {
-	Ciphertext string `json:"enc"`
+	Ciphertext string `json:"enc,omitempty"`
+	Ignore     bool   `json:"ignore,omitempty"`
 }
 
 // TierMap maps a variable name to its encrypted value for one tier.
@@ -67,6 +75,37 @@ type Store struct {
 	Version int               `json:"version"`
 	Keys    Keys              `json:"keys"`
 	Targets map[string]Target `json:"targets"`
+}
+
+// tierMap returns the TierMap for a (path, env, tier) cell, or nil if absent.
+func (s *Store) tierMap(path, env string, tier Tier) TierMap {
+	blk, ok := s.Targets[path][env]
+	if !ok {
+		return nil
+	}
+	if tier == Runtime {
+		return blk.Runtime
+	}
+	return blk.Buildtime
+}
+
+// Ignored reports whether key is marked ward-ignored in the (path, env, tier)
+// cell.
+func (s *Store) Ignored(path, env string, tier Tier, key string) bool {
+	return s.tierMap(path, env, tier)[key].Ignore
+}
+
+// IgnoredNames returns the sorted names marked ward-ignored in the (path, env,
+// tier) cell.
+func (s *Store) IgnoredNames(path, env string, tier Tier) []string {
+	var out []string
+	for k, v := range s.tierMap(path, env, tier) {
+		if v.Ignore {
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
 }
 
 // Plaintext is the fully decrypted view of a target/env/tier, used by the merge

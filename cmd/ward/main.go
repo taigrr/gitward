@@ -33,6 +33,8 @@ func main() {
 		cli.NewRegisterCmd(),
 		cli.NewEditCmd(),
 		cli.NewListCmd(),
+		cli.NewIgnoreCmd(),
+		cli.NewUnignoreCmd(),
 		cli.NewResolveCmd(),
 		cli.NewInstallCmd(),
 		cli.NewAddRecipientCmd(),

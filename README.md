@@ -157,6 +157,8 @@ cleanly and a pull never clobbers an uncommitted local edit.
 | `ward diff [path]`                             | Per-key merge decisions                           |
 | `ward resolve [path]`                          | Interactively resolve conflicts                   |
 | `ward list`                                    | Targets, envs, tiers, key names (never values)    |
+| `ward ignore <path> <env> <buildtime\|runtime> [KEY]`   | Stop managing a variable (or list ignored ones)  |
+| `ward unignore <path> <env> <buildtime\|runtime> <KEY>` | Resume managing a previously ignored variable    |
 | `ward add-recipient <ssh\|gpg\|github>`        | Add a recipient and rewrap the data key           |
 | `ward rm-recipient <recipient>`                | Remove a recipient and rewrap the data key        |
 | `ward doctor`                                  | Check store, hooks, recipients, gitignore parity  |

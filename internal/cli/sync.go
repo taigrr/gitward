@@ -55,7 +55,10 @@ func NewRegisterCmd() *cobra.Command {
 			}
 			rel := ""
 			if len(args) == 1 {
-				rel = args[0]
+				rel, err = relToRoot(e.Root, args[0])
+				if err != nil {
+					return err
+				}
 			}
 			n, err := e.Register(rel)
 			if err != nil {

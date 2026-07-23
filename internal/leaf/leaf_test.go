@@ -1,6 +1,7 @@
 package leaf
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/taigrr/gitward/internal/store"
@@ -66,5 +67,37 @@ func TestQuoteWhitespace(t *testing.T) {
 	got, _ := Parse(s)
 	if got["K"] != "a b" {
 		t.Fatalf("whitespace value round trip failed: %q", got["K"])
+	}
+}
+
+func TestSerializeWithIgnored(t *testing.T) {
+	// No ignored vars: output must match plain Serialize (no header).
+	plain := SerializeWithIgnored(map[string]string{"A": "1"}, nil)
+	if plain != Serialize(map[string]string{"A": "1"}) {
+		t.Fatal("empty ignored set changed output")
+	}
+	if strings.Contains(plain, IgnoredHeader) {
+		t.Fatal("ignored header emitted with no ignored vars")
+	}
+
+	out := SerializeWithIgnored(map[string]string{"A": "1"}, map[string]string{"IG": "x"})
+	if !strings.Contains(out, IgnoredHeader) {
+		t.Fatalf("missing ignored header:\n%s", out)
+	}
+	// Header must come after managed keys and before the ignored key.
+	hdr := strings.Index(out, IgnoredHeader)
+	if strings.Index(out, "A=1") > hdr {
+		t.Fatalf("managed key after ignored header:\n%s", out)
+	}
+	if strings.Index(out, "IG=x") < hdr {
+		t.Fatalf("ignored key before header:\n%s", out)
+	}
+	// Both parse back (Parse ignores comment lines).
+	got, err := Parse(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["A"] != "1" || got["IG"] != "x" {
+		t.Fatalf("round trip lost data: %#v", got)
 	}
 }

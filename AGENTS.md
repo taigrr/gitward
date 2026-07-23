@@ -83,6 +83,19 @@ depends on all):
   (`.env`, `.dev.vars`). Filenames are convention-derived in `leaf.FileName`:
   buildtime → `.env[.<env>]`, runtime → `.dev.vars[.<env>]`.
 - Only `*.example` dotfiles are ever committed; everything else is gitignored.
+- **Ignored variables are invisible to the merge but preserved on disk.**
+  A ward-ignored variable is stored as an `EncValue{Ignore: true}` marker
+  *colocated with where its value would live* — in the cell's `TierMap`, with no
+  `enc` — so ignoring is per-cell `(path, env, tier)`. The engine strips ignored
+  keys from all three merge inputs (store, leaf, base) in `Plan`/`Apply`/
+  `Register`, so they are never captured, written, or reported as drift. On
+  store→leaf regeneration `writeLeaf` re-emits any ignored keys (from the on-disk
+  leaf, else a seed value) in a trailing block after `leaf.IgnoredHeader` —
+  emitted *only* when at least one ignored variable is present. Markers carry no
+  plaintext, so `DecryptStore` skips them and `writeStoreFromPT` re-injects them
+  via `reinjectIgnores` (otherwise the rebuild-from-plaintext would drop them).
+  `engine.Ignore` evicts an already-stored key from store+base and preserves its
+  last-known value into the leaf even when the leaf file is absent.
 
 ## Testing patterns
 

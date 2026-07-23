@@ -3,6 +3,7 @@ package engine
 import (
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/taigrr/gitward/internal/crypto"
@@ -18,8 +19,8 @@ type Check struct {
 	Info string
 }
 
-// Doctor runs health checks over the store, hooks, recipients, ignore rules,
-// and .example coverage.
+// Doctor runs health checks over the store, hooks, recipients, store-entry
+// well-formedness, and .example coverage.
 func (e *Engine) Doctor() []Check {
 	var checks []Check
 
@@ -54,11 +55,44 @@ func (e *Engine) Doctor() []Check {
 
 	// .gitignore coverage + .example key parity.
 	if e.Initialized() {
+		checks = append(checks, e.checkStoreEntries())
 		checks = append(checks, e.checkIgnore()...)
 		checks = append(checks, e.checkExamples()...)
 	}
 
 	return checks
+}
+
+// checkStoreEntries verifies each store entry is well-formed: a variable is
+// either managed (has ciphertext) or ward-ignored (marker only) — never both,
+// and never neither.
+func (e *Engine) checkStoreEntries() Check {
+	var bad []string
+	for path, tgt := range e.Store.Targets {
+		for env, blk := range tgt {
+			for _, ti := range []struct {
+				tier store.Tier
+				tm   store.TierMap
+			}{{store.Buildtime, blk.Buildtime}, {store.Runtime, blk.Runtime}} {
+				for k, v := range ti.tm {
+					loc := path + " " + string(ti.tier) + "/" + env + " " + k
+					switch {
+					case v.Ignore && v.Ciphertext != "":
+						bad = append(bad, loc+" (both enc and ignore)")
+					case !v.Ignore && v.Ciphertext == "":
+						bad = append(bad, loc+" (neither enc nor ignore)")
+					}
+				}
+			}
+		}
+	}
+	sort.Strings(bad)
+	ok := len(bad) == 0
+	info := "all store entries well-formed"
+	if !ok {
+		info = "malformed: " + strings.Join(bad, ", ")
+	}
+	return Check{"store entries", ok, info}
 }
 
 // checkIgnore verifies generated leaf files are ignored by git.

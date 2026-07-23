@@ -125,6 +125,9 @@ func (e *Engine) DecryptStore() (store.Plaintext, error) {
 func (e *Engine) decTier(m store.TierMap) (map[string]string, error) {
 	out := map[string]string{}
 	for k, v := range m {
+		if v.Ignore {
+			continue // ward-ignored: no value stored
+		}
 		pt, err := crypto.DecryptValue(e.dek, k, v.Ciphertext)
 		if err != nil {
 			return nil, err
@@ -203,11 +206,64 @@ func (e *Engine) ReadLeaf(basepath string, tier store.Tier, env string) (map[str
 	return m, true, nil
 }
 
-// WriteLeaf serializes vals to the leaf file. When vals is empty the file is
-// removed so a fully-deleted tier leaves no stale file.
+// WriteLeaf serializes vals (the managed values) to the leaf file. Any
+// ward-ignored variables already present in the on-disk file are preserved
+// verbatim in a trailing block so store->leaf regeneration never drops
+// platform-injected or otherwise unmanaged variables. When both the managed and
+// ignored sets are empty the file is removed so a fully-deleted tier leaves no
+// stale file.
 func (e *Engine) WriteLeaf(basepath string, tier store.Tier, env string, vals map[string]string) error {
+	return e.writeLeaf(basepath, tier, env, vals, nil)
+}
+
+// writeLeaf is WriteLeaf with an explicit seed of ignored values to preserve
+// when they are not already present in the on-disk file. The on-disk value
+// always takes precedence (the leaf is the source of truth for unmanaged
+// variables); the seed is the last-known value for a key being evicted from the
+// store so it is never lost when the leaf file is absent (e.g. fresh clone).
+func (e *Engine) writeLeaf(basepath string, tier store.Tier, env string, vals, seedIgnored map[string]string) error {
 	full := filepath.Join(e.Root, leaf.Path(basepath, tier, env))
-	if len(vals) == 0 {
+
+	// Gather ignored variables to preserve: from the on-disk file first, then
+	// falling back to the seed for any ignored name not present on disk.
+	var ignored map[string]string
+	if names := e.Store.IgnoredNames(basepath, env, tier); len(names) > 0 {
+		existing, ok, err := e.ReadLeaf(basepath, tier, env)
+		if err != nil {
+			return err
+		}
+		for _, k := range names {
+			var (
+				v       string
+				present bool
+			)
+			if ok {
+				v, present = existing[k]
+			}
+			if !present {
+				v, present = seedIgnored[k]
+			}
+			if present {
+				if ignored == nil {
+					ignored = map[string]string{}
+				}
+				ignored[k] = v
+			}
+		}
+	}
+
+	// Never emit an ignored variable as a managed one.
+	if len(ignored) > 0 {
+		managed := make(map[string]string, len(vals))
+		for k, v := range vals {
+			if _, ok := ignored[k]; !ok {
+				managed[k] = v
+			}
+		}
+		vals = managed
+	}
+
+	if len(vals) == 0 && len(ignored) == 0 {
 		if err := os.Remove(full); err != nil && !os.IsNotExist(err) {
 			return err
 		}
@@ -216,7 +272,36 @@ func (e *Engine) WriteLeaf(basepath string, tier store.Tier, env string, vals ma
 	if err := os.MkdirAll(filepath.Dir(full), 0o755); err != nil {
 		return err
 	}
-	return os.WriteFile(full, []byte(leaf.Serialize(vals)), 0o600)
+	return os.WriteFile(full, []byte(leaf.SerializeWithIgnored(vals, ignored)), 0o600)
+}
+
+// ignoredSet returns the ignored names for a cell as a lookup set.
+func (e *Engine) ignoredSet(c Cell) map[string]struct{} {
+	names := e.Store.IgnoredNames(c.Path, c.Env, c.Tier)
+	if len(names) == 0 {
+		return nil
+	}
+	set := make(map[string]struct{}, len(names))
+	for _, k := range names {
+		set[k] = struct{}{}
+	}
+	return set
+}
+
+// stripIgnored returns a copy of m with the cell's ignored keys removed. When
+// there is nothing to strip it returns m unchanged.
+func (e *Engine) stripIgnored(c Cell, m map[string]string) map[string]string {
+	set := e.ignoredSet(c)
+	if set == nil || m == nil {
+		return m
+	}
+	out := make(map[string]string, len(m))
+	for k, v := range m {
+		if _, ok := set[k]; !ok {
+			out[k] = v
+		}
+	}
+	return out
 }
 
 // --- reconciliation ---
@@ -290,7 +375,13 @@ func (e *Engine) Plan() ([]CellResult, error) {
 			// store->leaf updates apply and nothing is spuriously deleted.
 			leafVals = cloneMap(bv)
 		}
-		res := merge.Merge(cellVals(sp, c), leafVals, bv)
+		// Ignored variables are invisible to the merge: never captured, never
+		// written, never reported as drift.
+		res := merge.Merge(
+			e.stripIgnored(c, cellVals(sp, c)),
+			e.stripIgnored(c, leafVals),
+			e.stripIgnored(c, bv),
+		)
 		sort.Slice(res, func(i, j int) bool { return res[i].Key < res[j].Key })
 		out = append(out, CellResult{Cell: c, Results: res})
 	}
@@ -348,7 +439,7 @@ func (e *Engine) Apply(plan []CellResult, dir Direction) (conflicts int, err err
 		c := cr.Cell
 		storeVals := map[string]string{}
 		leafVals := map[string]string{}
-		for k, v := range cellVals(sp, c) {
+		for k, v := range e.stripIgnored(c, cellVals(sp, c)) {
 			storeVals[k] = v
 		}
 		lv, existed, err := e.ReadLeaf(c.Path, c.Tier, c.Env)
@@ -358,7 +449,7 @@ func (e *Engine) Apply(plan []CellResult, dir Direction) (conflicts int, err err
 		if !existed {
 			lv = cloneMap(cellVals(base, c))
 		}
-		for k, v := range lv {
+		for k, v := range e.stripIgnored(c, lv) {
 			leafVals[k] = v
 		}
 
@@ -446,8 +537,46 @@ func (e *Engine) writeStoreFromPT(pt store.Plaintext) error {
 			targets[path] = tgt
 		}
 	}
+	// Re-inject ward-ignore markers from the current store: they carry no
+	// plaintext, so they are absent from pt and would otherwise be dropped.
+	reinjectIgnores(targets, e.Store.Targets)
 	e.Store.Targets = targets
 	return e.SaveStore()
+}
+
+// reinjectIgnores copies Ignore-marked entries from src into dst, creating any
+// missing target/env/tier maps so marker-only cells survive a store rebuild.
+func reinjectIgnores(dst, src map[string]store.Target) {
+	for path, tgt := range src {
+		for env, blk := range tgt {
+			for _, ti := range []struct {
+				tier store.Tier
+				tm   store.TierMap
+			}{{store.Buildtime, blk.Buildtime}, {store.Runtime, blk.Runtime}} {
+				for k, v := range ti.tm {
+					if !v.Ignore {
+						continue
+					}
+					if dst[path] == nil {
+						dst[path] = store.Target{}
+					}
+					db := dst[path][env]
+					if ti.tier == store.Runtime {
+						if db.Runtime == nil {
+							db.Runtime = store.TierMap{}
+						}
+						db.Runtime[k] = store.EncValue{Ignore: true}
+					} else {
+						if db.Buildtime == nil {
+							db.Buildtime = store.TierMap{}
+						}
+						db.Buildtime[k] = store.EncValue{Ignore: true}
+					}
+					dst[path][env] = db
+				}
+			}
+		}
+	}
 }
 
 func setCell(p store.Plaintext, c Cell, vals map[string]string) {

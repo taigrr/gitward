@@ -91,7 +91,7 @@ func (e *Engine) Register(rel string) (int, error) {
 		for k, v := range cur {
 			merged[k] = v
 		}
-		for k, v := range f.Vals {
+		for k, v := range e.stripIgnored(f.Cell, f.Vals) {
 			if _, exists := merged[k]; !exists {
 				merged[k] = v
 				added++

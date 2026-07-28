@@ -252,11 +252,16 @@ func (e *Engine) writeLeaf(basepath string, tier store.Tier, env string, vals, s
 		}
 	}
 
-	// Never emit an ignored variable as a managed one.
-	if len(ignored) > 0 {
+	// Never emit an ignored variable as a managed one, even when there is no
+	// preserved ignored value to write.
+	if names := e.Store.IgnoredNames(basepath, env, tier); len(names) > 0 {
+		ignoredNames := make(map[string]struct{}, len(names))
+		for _, k := range names {
+			ignoredNames[k] = struct{}{}
+		}
 		managed := make(map[string]string, len(vals))
 		for k, v := range vals {
-			if _, ok := ignored[k]; !ok {
+			if _, ok := ignoredNames[k]; !ok {
 				managed[k] = v
 			}
 		}

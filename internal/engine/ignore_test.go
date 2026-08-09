@@ -131,6 +131,33 @@ func TestIgnore_PreservesLocalManagedEdits(t *testing.T) {
 	}
 }
 
+// TestWriteLeaf_DoesNotEmitIgnoredAsManaged verifies that an ignore marker is
+// enough to suppress a managed value, even when there is no ignored value to
+// preserve in the trailing block.
+func TestWriteLeaf_DoesNotEmitIgnoredAsManaged(t *testing.T) {
+	dir, _ := newRepo(t)
+	e := openIn(t, dir)
+	if err := e.Init(nil, pass); err != nil {
+		t.Fatal(err)
+	}
+	cell := Cell{"apps/api", "_", store.Buildtime}
+	e.setIgnoreMarker(cell, "SECRET")
+
+	if err := e.writeLeaf(cell.Path, cell.Tier, cell.Env, map[string]string{
+		"KEEP":   "1",
+		"SECRET": "2",
+	}, nil); err != nil {
+		t.Fatal(err)
+	}
+	body := readFile(t, filepath.Join(dir, "apps/api/.env"))
+	if strings.Contains(body, "SECRET=") {
+		t.Fatalf("ignored key emitted as managed:\n%s", body)
+	}
+	if !strings.Contains(body, "KEEP=1") {
+		t.Fatalf("managed key missing:\n%s", body)
+	}
+}
+
 // TestIgnore_EvictsExisting verifies that ignoring an already-stored variable
 // drops it from the store and base but keeps it in the leaf's ignored block.
 func TestIgnore_EvictsExisting(t *testing.T) {

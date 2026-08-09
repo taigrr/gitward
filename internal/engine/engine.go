@@ -223,16 +223,17 @@ func (e *Engine) WriteLeaf(basepath string, tier store.Tier, env string, vals ma
 // store so it is never lost when the leaf file is absent (e.g. fresh clone).
 func (e *Engine) writeLeaf(basepath string, tier store.Tier, env string, vals, seedIgnored map[string]string) error {
 	full := filepath.Join(e.Root, leaf.Path(basepath, tier, env))
+	ignoredNames := e.Store.IgnoredNames(basepath, env, tier)
 
 	// Gather ignored variables to preserve: from the on-disk file first, then
 	// falling back to the seed for any ignored name not present on disk.
 	var ignored map[string]string
-	if names := e.Store.IgnoredNames(basepath, env, tier); len(names) > 0 {
+	if len(ignoredNames) > 0 {
 		existing, ok, err := e.ReadLeaf(basepath, tier, env)
 		if err != nil {
 			return err
 		}
-		for _, k := range names {
+		for _, k := range ignoredNames {
 			var (
 				v       string
 				present bool
@@ -252,11 +253,16 @@ func (e *Engine) writeLeaf(basepath string, tier store.Tier, env string, vals, s
 		}
 	}
 
-	// Never emit an ignored variable as a managed one.
-	if len(ignored) > 0 {
+	// Never emit an ignored variable as a managed one, even when there is no
+	// preserved ignored value to write.
+	if len(ignoredNames) > 0 {
+		ignoredSet := make(map[string]struct{}, len(ignoredNames))
+		for _, k := range ignoredNames {
+			ignoredSet[k] = struct{}{}
+		}
 		managed := make(map[string]string, len(vals))
 		for k, v := range vals {
-			if _, ok := ignored[k]; !ok {
+			if _, ok := ignoredSet[k]; !ok {
 				managed[k] = v
 			}
 		}

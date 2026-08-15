@@ -128,6 +128,7 @@ func (e *Engine) checkExamples() []Check {
 	var checks []Check
 	sp, _ := e.DecryptStore()
 	var missing []string
+	var antipattern []string
 	_ = filepath.WalkDir(e.Root, func(p string, d os.DirEntry, err error) error {
 		if err != nil || d.IsDir() {
 			return err
@@ -136,11 +137,20 @@ func (e *Engine) checkExamples() []Check {
 		if !strings.HasSuffix(name, ".example") {
 			return nil
 		}
-		tier, env, ok := classifyExample(name)
+		basepath, _ := filepath.Rel(e.Root, filepath.Dir(p))
+		// Env-specific example files (.env.<env>.example /
+		// .dev.vars.<env>.example) are an antipattern: an example is a
+		// human-authored template of the keys an app needs, not a
+		// per-env artifact. Commit exactly one env-agnostic template per
+		// tier (.env.example, .dev.vars.example) instead.
+		if isEnvSpecificExample(name) {
+			antipattern = append(antipattern, filepath.Join(basepath, name))
+			return nil
+		}
+		tier, ok := classifyExample(name)
 		if !ok {
 			return nil
 		}
-		basepath, _ := filepath.Rel(e.Root, filepath.Dir(p))
 		b, err := os.ReadFile(p)
 		if err != nil {
 			return nil
@@ -149,38 +159,77 @@ func (e *Engine) checkExamples() []Check {
 		if err != nil {
 			return nil
 		}
-		have := cellVals(sp, Cell{basepath, env, tier})
+		// An example is env-agnostic: it declares the keys an app uses
+		// without pinning an env, so a key counts as present if it exists
+		// in that basepath+tier under any env (e.g. only `production`).
+		have := tierKeysAcrossEnvs(sp, basepath, tier)
 		for k := range exVals {
 			if _, ok := have[k]; !ok {
-				missing = append(missing, basepath+" "+string(tier)+"/"+env+" "+k)
+				missing = append(missing, basepath+" "+string(tier)+" "+k)
 			}
 		}
 		return nil
 	})
-	ok := len(missing) == 0
-	info := ".example keys all present in store"
-	if !ok {
-		info = "missing from store: " + strings.Join(missing, ", ")
+	parityOK := len(missing) == 0
+	parityInfo := ".example keys all present in store"
+	if !parityOK {
+		parityInfo = "missing from store: " + strings.Join(missing, ", ")
 	}
-	checks = append(checks, Check{"example parity", ok, info})
+	checks = append(checks, Check{"example parity", parityOK, parityInfo})
+
+	conventionOK := len(antipattern) == 0
+	conventionInfo := "examples are env-agnostic (.env.example / .dev.vars.example)"
+	if !conventionOK {
+		sort.Strings(antipattern)
+		conventionInfo = "env-specific example files are an antipattern; use one env-agnostic template per tier: " +
+			strings.Join(antipattern, ", ")
+	}
+	checks = append(checks, Check{"example convention", conventionOK, conventionInfo})
 	return checks
 }
 
-// classifyExample maps ".env.example", ".env.<env>.example",
-// ".dev.vars.example", ".dev.vars.<env>.example" to a tier+env.
-func classifyExample(name string) (store.Tier, string, bool) {
+// tierKeysAcrossEnvs returns the union of key names present for a basepath+tier
+// across every env in the store. Env-agnostic example files declare the keys an
+// app uses without pinning an env, so parity holds if a key lives under any env.
+func tierKeysAcrossEnvs(p store.Plaintext, basepath string, tier store.Tier) map[string]struct{} {
+	out := map[string]struct{}{}
+	for env := range p[basepath] {
+		for k := range p[basepath][env][tier] {
+			out[k] = struct{}{}
+		}
+	}
+	return out
+}
+
+// classifyExample maps the two supported, env-agnostic example templates to
+// their tier: ".env.example" -> buildtime, ".dev.vars.example" -> runtime.
+// Env-specific variants are intentionally not classified here (see
+// isEnvSpecificExample); examples must not pin an env.
+func classifyExample(name string) (store.Tier, bool) {
+	switch name {
+	case ".dev.vars.example":
+		return store.Runtime, true
+	case ".env.example":
+		return store.Buildtime, true
+	}
+	return "", false
+}
+
+// isEnvSpecificExample reports whether name is an env-pinned example file
+// (.env.<env>.example or .dev.vars.<env>.example), which is an antipattern —
+// examples should be env-agnostic (one template per tier).
+func isEnvSpecificExample(name string) bool {
+	if !strings.HasSuffix(name, ".example") {
+		return false
+	}
 	base := strings.TrimSuffix(name, ".example")
 	switch {
-	case base == ".dev.vars":
-		return store.Runtime, store.DefaultEnv, true
-	case strings.HasPrefix(base, ".dev.vars."):
-		return store.Runtime, strings.TrimPrefix(base, ".dev.vars."), true
-	case base == ".env":
-		return store.Buildtime, store.DefaultEnv, true
-	case strings.HasPrefix(base, ".env."):
-		return store.Buildtime, strings.TrimPrefix(base, ".env."), true
+	case base == ".dev.vars" || base == ".env":
+		return false
+	case strings.HasPrefix(base, ".dev.vars.") || strings.HasPrefix(base, ".env."):
+		return true
 	}
-	return "", "", false
+	return false
 }
 
 func condStr(cond bool, yes, no string) string {

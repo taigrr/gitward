@@ -500,3 +500,130 @@ func TestEndToEnd_TwoClonesConflictViaPull(t *testing.T) {
 		t.Fatal("local edit v3 was clobbered by pull (data loss)")
 	}
 }
+
+// TestCheckExamples_EnvAgnosticExampleMatchesAnyEnv reproduces the searchgov
+// drift: keys provisioned only under a non-default env (production) must still
+// satisfy a suffix-less, env-agnostic .dev.vars.example.
+func TestCheckExamples_EnvAgnosticExampleMatchesAnyEnv(t *testing.T) {
+	dir, _ := newRepo(t)
+	e := openIn(t, dir)
+	if err := e.Init(nil, pass); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+
+	// Real secrets live under the production env only.
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.production"),
+		"CF-Access-Client-Id=id\nCF-Access-Client-Secret=secret\n")
+	if _, err := e.Register(""); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+
+	// The committed template is env-agnostic (no env suffix).
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.example"),
+		"CF-Access-Client-Id=XXX\nCF-Access-Client-Secret=XXX\n")
+
+	for _, c := range e.checkExamples() {
+		if c.Name == "example parity" && !c.OK {
+			t.Fatalf("example parity should pass; got: %s", c.Info)
+		}
+	}
+}
+
+// TestCheckExamples_MissingKeyIsReported ensures the check still fails when an
+// example declares a key absent from every env of the store.
+func TestCheckExamples_MissingKeyIsReported(t *testing.T) {
+	dir, _ := newRepo(t)
+	e := openIn(t, dir)
+	if err := e.Init(nil, pass); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.production"),
+		"CF-Access-Client-Id=id\n")
+	if _, err := e.Register(""); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.example"),
+		"CF-Access-Client-Id=XXX\nUNKNOWN_KEY=XXX\n")
+
+	found := false
+	for _, c := range e.checkExamples() {
+		if c.Name == "example parity" {
+			if c.OK {
+				t.Fatalf("expected parity failure for UNKNOWN_KEY")
+			}
+			if !strings.Contains(c.Info, "UNKNOWN_KEY") {
+				t.Fatalf("info should name the missing key; got: %s", c.Info)
+			}
+			found = true
+		}
+	}
+	if !found {
+		t.Fatal("no example parity check emitted")
+	}
+}
+
+// TestCheckExamples_EnvSpecificExampleIsAntipattern locks in the convention:
+// an env-pinned example file (.dev.vars.<env>.example) must be flagged, and it
+// must not be treated as a real template for parity purposes.
+func TestCheckExamples_EnvSpecificExampleIsAntipattern(t *testing.T) {
+	dir, _ := newRepo(t)
+	e := openIn(t, dir)
+	if err := e.Init(nil, pass); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.production"),
+		"CF-Access-Client-Id=id\n")
+	if _, err := e.Register(""); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	// The antipattern: an env-pinned example instead of .dev.vars.example.
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.production.example"),
+		"CF-Access-Client-Id=XXX\n")
+
+	var parity, convention *Check
+	checks := e.checkExamples()
+	for i := range checks {
+		switch checks[i].Name {
+		case "example parity":
+			parity = &checks[i]
+		case "example convention":
+			convention = &checks[i]
+		}
+	}
+	if convention == nil {
+		t.Fatal("no example convention check emitted")
+	}
+	if convention.OK {
+		t.Fatalf("env-specific example should fail the convention check")
+	}
+	if !strings.Contains(convention.Info, ".dev.vars.production.example") {
+		t.Fatalf("convention info should name the offending file; got: %s", convention.Info)
+	}
+	// The antipattern file must not count as a real template — parity passes.
+	if parity == nil || !parity.OK {
+		t.Fatalf("parity should pass (env-specific example ignored); got: %+v", parity)
+	}
+}
+
+// TestCheckExamples_EnvAgnosticExamplePassesConvention verifies the sanctioned
+// form does not trip the convention check.
+func TestCheckExamples_EnvAgnosticExamplePassesConvention(t *testing.T) {
+	dir, _ := newRepo(t)
+	e := openIn(t, dir)
+	if err := e.Init(nil, pass); err != nil {
+		t.Fatalf("Init: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.production"),
+		"CF-Access-Client-Id=id\n")
+	if _, err := e.Register(""); err != nil {
+		t.Fatalf("Register: %v", err)
+	}
+	writeFile(t, filepath.Join(dir, "apps/searchgov/.dev.vars.example"),
+		"CF-Access-Client-Id=XXX\n")
+
+	for _, c := range e.checkExamples() {
+		if c.Name == "example convention" && !c.OK {
+			t.Fatalf("env-agnostic example should pass convention; got: %s", c.Info)
+		}
+	}
+}

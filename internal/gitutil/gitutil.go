@@ -126,13 +126,38 @@ func Stage(root, rel string) error {
 // evaluating .gitignore patterns via go-git's matcher. It reads patterns
 // directly off the filesystem rooted at root, without opening the repository,
 // so it is unaffected by unsupported config extensions.
+//
+// Reading the patterns recursively walks the worktree, so callers that test
+// many paths against the same root should build an IgnoreMatcher once with
+// NewIgnoreMatcher and reuse it instead of calling PathIgnored in a loop.
 func PathIgnored(root, rel string) bool {
-	fs := osfs.New(root)
-	patterns, err := gitignore.ReadPatterns(fs, nil)
+	m, err := NewIgnoreMatcher(root)
 	if err != nil {
 		return false
 	}
-	m := gitignore.NewMatcher(patterns)
+	return m.Match(rel)
+}
+
+// IgnoreMatcher evaluates .gitignore rules for a repo without re-reading the
+// worktree on every check. Build it once with NewIgnoreMatcher and call Match
+// for each candidate path.
+type IgnoreMatcher struct {
+	m gitignore.Matcher
+}
+
+// NewIgnoreMatcher reads all .gitignore patterns under root once (the
+// expensive step) and returns a reusable matcher.
+func NewIgnoreMatcher(root string) (*IgnoreMatcher, error) {
+	fs := osfs.New(root)
+	patterns, err := gitignore.ReadPatterns(fs, nil)
+	if err != nil {
+		return nil, err
+	}
+	return &IgnoreMatcher{m: gitignore.NewMatcher(patterns)}, nil
+}
+
+// Match reports whether the repo-relative path is ignored.
+func (im *IgnoreMatcher) Match(rel string) bool {
 	parts := strings.Split(filepath.ToSlash(rel), "/")
-	return m.Match(parts, false)
+	return im.m.Match(parts, false)
 }

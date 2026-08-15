@@ -102,12 +102,16 @@ func (e *Engine) checkIgnore() []Check {
 	if err != nil {
 		return []Check{{"gitignore coverage", false, err.Error()}}
 	}
+	im, err := gitutil.NewIgnoreMatcher(e.Root)
+	if err != nil {
+		return []Check{{"gitignore coverage", false, err.Error()}}
+	}
 	var missing []string
 	for path, envs := range sp {
 		for env, tiers := range envs {
 			for tier := range tiers {
 				rel := leaf.Path(path, tier, env)
-				if !gitutil.PathIgnored(e.Root, rel) {
+				if !im.Match(rel) {
 					missing = append(missing, rel)
 				}
 			}
@@ -130,8 +134,14 @@ func (e *Engine) checkExamples() []Check {
 	var missing []string
 	var antipattern []string
 	_ = filepath.WalkDir(e.Root, func(p string, d os.DirEntry, err error) error {
-		if err != nil || d.IsDir() {
+		if err != nil {
 			return err
+		}
+		if d.IsDir() {
+			if skipWalkDir(d.Name(), p, e.Root) {
+				return filepath.SkipDir
+			}
+			return nil
 		}
 		name := d.Name()
 		if !strings.HasSuffix(name, ".example") {
@@ -227,6 +237,22 @@ func isEnvSpecificExample(name string) bool {
 	case base == ".dev.vars" || base == ".env":
 		return false
 	case strings.HasPrefix(base, ".dev.vars.") || strings.HasPrefix(base, ".env."):
+		return true
+	}
+	return false
+}
+
+// skipWalkDir reports whether a directory should be pruned from the .example
+// walk. The worktree root is never skipped; otherwise well-known VCS and
+// dependency/vendor directories (which never hold managed .example templates)
+// are skipped to keep the walk from descending into e.g. node_modules.
+func skipWalkDir(name, p, root string) bool {
+	if p == root {
+		return false
+	}
+	switch name {
+	case ".git", "node_modules", "vendor", ".direnv", ".venv", "venv",
+		".next", ".turbo", "dist", "build", ".cache", "target":
 		return true
 	}
 	return false

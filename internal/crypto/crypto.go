@@ -31,6 +31,10 @@ import (
 // DEKSize is the data-encryption-key length (AES-256).
 const DEKSize = 32
 
+const defaultScryptWorkFactor = 18
+
+var scryptWorkFactor = defaultScryptWorkFactor
+
 // NewDEK returns a fresh random data-encryption key.
 func NewDEK() ([]byte, error) {
 	k := make([]byte, DEKSize)
@@ -160,6 +164,7 @@ func WrapDEKPassphrase(dek []byte, passphrase string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	r.SetWorkFactor(scryptWorkFactor)
 	var buf bytes.Buffer
 	armorW := armor.NewWriter(&buf)
 	w, err := age.Encrypt(armorW, r)

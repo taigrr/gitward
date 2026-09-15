@@ -17,7 +17,7 @@ go build -o /tmp/ward ./cmd/ward   # build the CLI binary
 ```
 
 There is no Makefile or CI config; the commands above are the full toolchain.
-Go version is pinned to **1.26.4** in `go.mod`.
+Go version is pinned to **1.27.1** in `go.mod`.
 
 ## Architecture
 

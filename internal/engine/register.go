@@ -3,6 +3,7 @@ package engine
 import (
 	"io/fs"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/taigrr/gitward/internal/store"
@@ -70,6 +71,42 @@ func (e *Engine) ScanLeaves(rel string) ([]discovered, error) {
 		return nil
 	})
 	return out, err
+}
+
+// RegisterEntry lists the keys a Register call would newly add for one cell.
+type RegisterEntry struct {
+	Cell Cell
+	Keys []string
+}
+
+// RegisterPlan scans for leaf files and reports, per cell, which keys are not
+// yet in the store. It performs no writes. Cells with nothing new are omitted.
+func (e *Engine) RegisterPlan(rel string) ([]RegisterEntry, error) {
+	found, err := e.ScanLeaves(rel)
+	if err != nil {
+		return nil, err
+	}
+	sp, err := e.DecryptStore()
+	if err != nil {
+		return nil, err
+	}
+	var out []RegisterEntry
+	for _, f := range found {
+		cur := cellVals(sp, f.Cell)
+		var keys []string
+		for k := range e.stripIgnored(f.Cell, f.Vals) {
+			if _, exists := cur[k]; !exists {
+				keys = append(keys, k)
+			}
+		}
+		if len(keys) == 0 {
+			continue
+		}
+		sort.Strings(keys)
+		out = append(out, RegisterEntry{Cell: f.Cell, Keys: keys})
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Cell.String() < out[j].Cell.String() })
+	return out, nil
 }
 
 // Register scans for leaf files and adds any keys not already in the store,

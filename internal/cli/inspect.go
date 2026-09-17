@@ -9,19 +9,27 @@ import (
 	"github.com/taigrr/gitward/internal/merge"
 )
 
+// listCellJSON is one cell in `list --json`.
+type listCellJSON struct {
+	cellJSON
+	Keys    []string `json:"keys"`
+	Ignored []string `json:"ignored"`
+}
+
 // NewListCmd lists targets, envs, tiers, and key names (never values).
 func NewListCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list",
 		Short: "List registered targets, envs, tiers, and key names",
+		Long: "List every registered cell with its key names. Values are never printed.\n\n" +
+			"With --json, emits an array of {path, env, tier, file, keys, ignored}.",
 		RunE: func(c *cobra.Command, _ []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
 				return err
 			}
 			if !e.Initialized() {
-				c.Println("store not initialized (run 'ward init')")
-				return nil
+				return notInitialized(c)
 			}
 			sp, err := e.DecryptStore()
 			if err != nil {
@@ -32,8 +40,11 @@ func NewListCmd() *cobra.Command {
 				paths = append(paths, p)
 			}
 			sort.Strings(paths)
+			var cells []listCellJSON
 			for _, p := range paths {
-				c.Println(p)
+				if !jsonFlag {
+					c.Println(p)
+				}
 				envs := sp[p]
 				envNames := make([]string, 0, len(envs))
 				for en := range envs {
@@ -42,8 +53,10 @@ func NewListCmd() *cobra.Command {
 				sort.Strings(envNames)
 				for _, en := range envNames {
 					for _, tier := range []string{"buildtime", "runtime"} {
-						vals := envs[en][tierOf(tier)]
-						if len(vals) == 0 {
+						cell := engine.Cell{Path: p, Env: en, Tier: tierOf(tier)}
+						vals := envs[en][cell.Tier]
+						ignored := e.IgnoredKeys(cell)
+						if len(vals) == 0 && len(ignored) == 0 {
 							continue
 						}
 						keys := make([]string, 0, len(vals))
@@ -51,9 +64,26 @@ func NewListCmd() *cobra.Command {
 							keys = append(keys, k)
 						}
 						sort.Strings(keys)
+						if jsonFlag {
+							if ignored == nil {
+								ignored = []string{}
+							}
+							sort.Strings(ignored)
+							cells = append(cells, listCellJSON{cellJSON: toCellJSON(cell), Keys: keys, Ignored: ignored})
+							continue
+						}
+						if len(keys) == 0 {
+							continue
+						}
 						c.Printf("  %s/%s: %v\n", en, tier, keys)
 					}
 				}
+			}
+			if jsonFlag {
+				if cells == nil {
+					cells = []listCellJSON{}
+				}
+				return printJSON(c, cells)
 			}
 			return nil
 		},
@@ -62,52 +92,69 @@ func NewListCmd() *cobra.Command {
 	return cmd
 }
 
+// statusJSON is the payload of `status --json`.
+type statusJSON struct {
+	Clean     bool             `json:"clean"`
+	Conflicts int              `json:"conflicts"`
+	Cells     []cellStatusJSON `json:"cells"`
+}
+
 // NewStatusCmd summarizes per-cell sync state.
 func NewStatusCmd() *cobra.Command {
+	var exitCode bool
 	cmd := &cobra.Command{
 		Use:   "status",
 		Short: "Show sync state of every registered leaf file vs the store",
+		Long: "Summarize pending operations per cell.\n\n" +
+			"With --exit-code the process exits 0 when everything is in sync, 1 when\n" +
+			"there are pending (non-conflicting) changes, and 2 when any conflict exists.\n" +
+			"With --json, emits {clean, conflicts, cells:[{path, env, tier, file,\n" +
+			"incoming, local, delete, conflict}]} (only dirty cells are listed).",
 		RunE: func(c *cobra.Command, _ []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
 				return err
 			}
 			if !e.Initialized() {
-				c.Println("store not initialized (run 'ward init')")
-				return nil
+				return notInitialized(c)
 			}
 			plan, err := e.Plan()
 			if err != nil {
 				return err
 			}
-			clean := true
+			out := statusJSON{Clean: true, Cells: []cellStatusJSON{}}
 			for _, cr := range plan {
-				var incoming, local, conflict, del int
-				for _, r := range cr.Results {
-					switch r.Op {
-					case merge.OpTakeStore:
-						incoming++
-					case merge.OpTakeLeaf:
-						local++
-					case merge.OpConflict:
-						conflict++
-					case merge.OpDelete:
-						del++
-					}
-				}
-				if incoming+local+conflict+del == 0 {
+				s := summarize(cr)
+				if !s.dirty() {
 					continue
 				}
-				clean = false
-				c.Printf("%s: incoming=%d local=%d delete=%d conflict=%d\n",
-					cr.Cell, incoming, local, del, conflict)
+				out.Clean = false
+				out.Conflicts += s.Conflict
+				out.Cells = append(out.Cells, s)
+				if !jsonFlag {
+					c.Printf("%s: incoming=%d local=%d delete=%d conflict=%d\n",
+						cr.Cell, s.Incoming, s.Local, s.Delete, s.Conflict)
+				}
 			}
-			if clean {
+			if jsonFlag {
+				if err := printJSON(c, out); err != nil {
+					return err
+				}
+			} else if out.Clean {
 				c.Println("all in sync")
+			}
+			if exitCode {
+				switch {
+				case out.Conflicts > 0:
+					return &ExitError{Code: ExitConflict, Silent: true}
+				case !out.Clean:
+					return &ExitError{Code: ExitDrift, Silent: true}
+				}
 			}
 			return nil
 		},
 	}
+	cmd.Flags().BoolVar(&exitCode, "exit-code", false, "exit 1 when changes are pending, 2 when conflicts exist")
 	addSSHFlag(cmd)
 	return cmd
 }
@@ -117,22 +164,31 @@ func NewDiffCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "diff [path]",
 		Short: "Show per-key differences between leaf files and the store",
+		Long: "Print one line per pending key operation: '<-' incoming (store -> leaf),\n" +
+			"'->' local edit (leaf -> store), '--' delete, '!!' conflict. Values are\n" +
+			"never printed. An optional path restricts output to one target directory.\n\n" +
+			"With --json, emits an array of {path, env, tier, file, key, op} where op is\n" +
+			"one of incoming, local, delete, conflict.",
+		Args: cobra.MaximumNArgs(1),
 		RunE: func(c *cobra.Command, args []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
 				return err
 			}
 			if !e.Initialized() {
-				c.Println("store not initialized (run 'ward init')")
-				return nil
+				return notInitialized(c)
 			}
 			plan, err := e.Plan()
 			if err != nil {
 				return err
 			}
-			filter := ""
-			if len(args) == 1 {
-				filter = args[0]
+			filter, err := pathFilter(e.Root, args)
+			if err != nil {
+				return err
+			}
+			changes := planChanges(plan, filter)
+			if jsonFlag {
+				return printJSON(c, changes)
 			}
 			for _, cr := range plan {
 				if filter != "" && cr.Cell.Path != filter {
@@ -151,6 +207,28 @@ func NewDiffCmd() *cobra.Command {
 	}
 	addSSHFlag(cmd)
 	return cmd
+}
+
+// pathFilter resolves the optional [path] argument of plan-scoped commands to
+// a repo-relative target path. It accepts a directory or a leaf file path; a
+// missing argument (or the repo root itself) means "everything".
+func pathFilter(root string, args []string) (string, error) {
+	if len(args) == 0 {
+		return "", nil
+	}
+	arg := args[0]
+	if engine.IsLeafFileName(arg) {
+		rel, err := relToRoot(root, arg)
+		if err != nil {
+			return "", err
+		}
+		cell, err := engine.ParseCellFile(rel)
+		if err != nil {
+			return "", err
+		}
+		return cell.Path, nil
+	}
+	return relToRoot(root, arg)
 }
 
 func opSymbol(op merge.Op) string {

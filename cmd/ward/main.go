@@ -24,6 +24,7 @@ func main() {
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
+	cli.AddGlobalFlags(root)
 
 	root.AddCommand(
 		cli.NewInitCmd(),
@@ -32,18 +33,27 @@ func main() {
 		cli.NewSyncCmd(),
 		cli.NewRegisterCmd(),
 		cli.NewEditCmd(),
+		cli.NewGetCmd(),
+		cli.NewSetCmd(),
+		cli.NewUnsetCmd(),
 		cli.NewListCmd(),
 		cli.NewIgnoreCmd(),
 		cli.NewUnignoreCmd(),
 		cli.NewResolveCmd(),
 		cli.NewInstallCmd(),
+		cli.NewRecipientsCmd(),
 		cli.NewAddRecipientCmd(),
 		cli.NewRmRecipientCmd(),
+		cli.NewSetPassphraseCmd(),
+		cli.NewRmPassphraseCmd(),
 		cli.NewDoctorCmd(),
+		cli.NewSkillCmd(),
 		cli.NewHookCmd(),
 	)
 
-	if err := fang.Execute(context.Background(), root, fang.WithVersion(version)); err != nil {
-		os.Exit(1)
-	}
+	err := fang.Execute(context.Background(), root,
+		fang.WithVersion(version),
+		fang.WithErrorHandler(cli.ErrorHandler),
+	)
+	os.Exit(cli.ExitCode(err))
 }

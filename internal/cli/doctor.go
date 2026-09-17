@@ -9,11 +9,20 @@ import (
 	"github.com/taigrr/gitward/internal/engine"
 )
 
+// checkJSON is one doctor finding in `doctor --json`.
+type checkJSON struct {
+	Name string `json:"name"`
+	OK   bool   `json:"ok"`
+	Info string `json:"info"`
+}
+
 // NewDoctorCmd runs health checks.
 func NewDoctorCmd() *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "doctor",
 		Short: "Diagnose store, hooks, recipients, and .gitignore coverage",
+		Long: "Run health checks and exit non-zero if any fail.\n\n" +
+			"With --json, emits {ok, checks:[{name, ok, info}]}.",
 		RunE: func(c *cobra.Command, _ []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
@@ -21,11 +30,29 @@ func NewDoctorCmd() *cobra.Command {
 			}
 			checks := e.Doctor()
 			allOK := true
+			out := make([]checkJSON, 0, len(checks))
+			for _, ck := range checks {
+				if !ck.OK {
+					allOK = false
+				}
+				out = append(out, checkJSON{Name: ck.Name, OK: ck.OK, Info: ck.Info})
+			}
+			if jsonFlag {
+				if err := printJSON(c, struct {
+					OK     bool        `json:"ok"`
+					Checks []checkJSON `json:"checks"`
+				}{allOK, out}); err != nil {
+					return err
+				}
+				if !allOK {
+					return &ExitError{Code: ExitFailure, Silent: true}
+				}
+				return nil
+			}
 			for _, ck := range checks {
 				mark := "ok  "
 				if !ck.OK {
 					mark = "FAIL"
-					allOK = false
 				}
 				c.Printf("[%s] %s — %s\n", mark, ck.Name, ck.Info)
 			}
@@ -46,8 +73,8 @@ func NewHookCmd() *cobra.Command {
 		Short:  "Internal: git hook entrypoint",
 		Hidden: true,
 		Args:   cobra.ExactArgs(1),
-		RunE: func(c *cobra.Command, args []string) error {
-			return runHook(c, args[0])
+		RunE: func(_ *cobra.Command, args []string) error {
+			return runHook(args[0])
 		},
 	}
 	return cmd
@@ -55,7 +82,7 @@ func NewHookCmd() *cobra.Command {
 
 // runHook implements the hook behavior. It must never fail a git operation
 // except pre-commit on an unresolved conflict.
-func runHook(c *cobra.Command, name string) error {
+func runHook(name string) error {
 	e, err := engine.Open("")
 	if err != nil {
 		// Not in a repo or git problem: do not block.

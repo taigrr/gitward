@@ -44,6 +44,15 @@ depends on all):
 - `internal/engine` — ties everything together (`Open`, `Plan`, `Apply`,
   `Init`, `Register`, hooks, doctor). The CLI is a thin shell over this.
 - `internal/cli` + `cmd/ward` — cobra commands wrapped by charmbracelet `fang`.
+  **CLI compatibility is a hard constraint**: existing commands, positional
+  forms, and human-readable output must keep working. New capability is added
+  via flags (`--json`, `--dry-run`, `--exit-code`, `--take/--key/--value`),
+  new verbs (`get`/`set`/`unset`/`recipients`), or alternative arg forms (a
+  cell may be a leaf file path *or* the `<path> <env> <tier>` triple; see
+  `parseCellRef`/`cellArgCount` in `cli/helpers.go`). Shared JSON shapes and
+  exit-code plumbing live in `cli/output.go`: `--json` is a global persistent
+  flag, `ExitError{Code, Silent}` carries exit codes through fang's
+  `WithErrorHandler`, and `ExitConflict` (2) is reserved for conflicts.
 
 ## Non-obvious gotchas
 

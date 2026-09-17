@@ -146,22 +146,56 @@ cleanly and a pull never clobbers an uncommitted local edit.
 
 ## 📖 Commands
 
+A **cell** is one `(path, env, tier)` location. Every command that takes a cell
+accepts either the leaf file path (`apps/web/.env.production`) or the explicit
+triple `<path> <env> <buildtime|runtime>` (env `_` = suffix-less file).
+
 | Command                                        | Description                                       |
 | ---------------------------------------------- | ------------------------------------------------- |
 | `ward init [flags]`                            | Create the store and data key                     |
 | `ward install`                                 | Install git hooks (idempotent)                    |
-| `ward register [path]`                         | Capture new keys from leaf files into the store   |
-| `ward edit <path> <env> <buildtime\|runtime>`  | `$EDITOR` a cell, capture back                    |
-| `ward sync`                                    | Reconcile both directions                         |
-| `ward status`                                  | Per-cell drift summary                            |
+| `ward register [path] [--dry-run]`             | Capture new keys from leaf files into the store   |
+| `ward edit <cell>`                             | `$EDITOR` a cell, capture back                    |
+| `ward get <cell> [KEY]`                        | Print one value (or the whole cell as dotenv)     |
+| `ward set <cell> KEY=VALUE... \| KEY --stdin`   | Set values non-interactively (`--force` if dirty) |
+| `ward unset <cell> KEY...`                     | Remove keys non-interactively                     |
+| `ward sync [--dry-run]`                        | Reconcile both directions (exit 2 on conflict)    |
+| `ward status [--exit-code]`                    | Per-cell drift summary (0 clean / 1 drift / 2 conflict) |
 | `ward diff [path]`                             | Per-key merge decisions                           |
-| `ward resolve [path]`                          | Interactively resolve conflicts                   |
+| `ward resolve [path] [--take store\|leaf] [--key K (--value V \| --delete)]` | Resolve conflicts, interactively or via flags |
 | `ward list`                                    | Targets, envs, tiers, key names (never values)    |
-| `ward ignore <path> <env> <buildtime\|runtime> [KEY]`   | Stop managing a variable (or list ignored ones)  |
-| `ward unignore <path> <env> <buildtime\|runtime> <KEY>` | Resume managing a previously ignored variable    |
+| `ward ignore <cell> [KEY]`                     | Stop managing a variable (or list ignored ones)   |
+| `ward unignore <cell> <KEY>`                   | Resume managing a previously ignored variable     |
+| `ward recipients`                              | List recipients and their public keys             |
 | `ward add-recipient <ssh\|gpg\|github>`        | Add a recipient and rewrap the data key           |
 | `ward rm-recipient <recipient>`                | Remove a recipient and rewrap the data key        |
 | `ward doctor`                                  | Check store, hooks, recipients, gitignore parity  |
+| `ward skill`                                   | Print the agent skill (SKILL.md) to stdout        |
+
+### Scripting and agents
+
+`ward skill` prints an [Agent Skills](https://agentskills.io) definition that
+teaches an agent both the human commands (`edit`, interactive `resolve`) and
+the non-interactive ones below. Install it with
+`mkdir -p .agents/skills/gitward && ward skill > .agents/skills/gitward/SKILL.md`.
+
+Every command accepts a global `--json` flag: data goes to stdout as JSON,
+errors go to stderr as `{"error": "...", "kind": "error"|"conflict"}`, and
+nothing is styled. `status --exit-code`, `sync`, and `doctor` encode their
+outcome in the exit status, so a typical agent loop is:
+
+```sh
+ward status --exit-code --json          # 0 clean, 1 pending, 2 conflict
+ward sync --dry-run --json              # inspect the plan
+ward sync --json                        # apply it
+ward resolve --take leaf --json         # or --key K --value V, never a prompt
+printf '%s' "$SECRET" | ward set apps/web/.dev.vars API_KEY --stdin --json
+ward get apps/web/.dev.vars API_KEY
+```
+
+`set`/`unset` refuse to write when the cell has unsynced changes (they replace
+the leaf file); pass `--force` to override. `resolve` without flags on a
+non-terminal stdin is an error rather than a hang.
 
 ### `ward init` flags
 

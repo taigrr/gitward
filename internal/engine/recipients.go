@@ -78,6 +78,40 @@ func (e *Engine) RewrapDEK(recipients map[string][]string, passphrase string) er
 	return nil
 }
 
+// SetPassphrase (re)wraps the data key under a shared scrypt passphrase,
+// replacing any existing passphrase wrap while leaving the age and gpg wraps
+// byte-identical (so the store diff is confined to the passphrase slot). This
+// is how the CI / break-glass passphrase is rotated without disturbing the
+// per-recipient wraps.
+func (e *Engine) SetPassphrase(passphrase string) error {
+	if !e.decoded {
+		return fmt.Errorf("data key not available")
+	}
+	if passphrase == "" {
+		return fmt.Errorf("passphrase is empty")
+	}
+	wrapped, err := crypto.WrapDEKPassphrase(e.dek, passphrase)
+	if err != nil {
+		return err
+	}
+	e.Store.Keys.DEKPassphrase = wrapped
+	return nil
+}
+
+// ClearPassphrase removes the shared passphrase wrap, leaving the age and gpg
+// wraps intact. It returns false if no passphrase wrap was present, and refuses
+// to remove the only remaining wrap (which would make the DEK unrecoverable).
+func (e *Engine) ClearPassphrase() (bool, error) {
+	if e.Store.Keys.DEKPassphrase == "" {
+		return false, nil
+	}
+	if e.Store.Keys.DEKAge == "" && e.Store.Keys.DEKPGP == "" {
+		return false, fmt.Errorf("refusing to remove the only DEK wrap; add an age or gpg recipient first")
+	}
+	e.Store.Keys.DEKPassphrase = ""
+	return true, nil
+}
+
 // Recipients returns a copy of the current name -> keys map and whether the
 // shared passphrase wrap is present.
 func (e *Engine) Recipients() (map[string][]string, bool) {

@@ -1,8 +1,6 @@
 package cli
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 
 	"github.com/taigrr/gitward/internal/engine"
@@ -12,35 +10,47 @@ import (
 // the current ignored keys when no key is given.
 func NewIgnoreCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "ignore <path> <env> <buildtime|runtime> [KEY]",
+		Use:   "ignore " + cellArgs + " [KEY]",
 		Short: "Stop managing a variable (preserve it in the leaf, never capture it)",
-		Args:  cobra.RangeArgs(3, 4),
+		Long: "Mark KEY as ward-ignored in the given cell: it stays in the leaf file (in a\n" +
+			"trailing block) but is never captured into the store or reported as drift.\n" +
+			"Without KEY, list the cell's ignored keys.\n\n" + cellArgsHelp + "\n\n" +
+			"With --json, emits {path, env, tier, file, ignored:[...]}.",
+		Args: cellArgCount(0, 1),
 		RunE: func(c *cobra.Command, args []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
 				return err
 			}
 			if !e.Initialized() {
-				return fmt.Errorf("store not initialized (run 'ward init')")
+				return errNotInitialized
 			}
-			path, err := relToRoot(e.Root, args[0])
+			cell, rest, err := parseCellRef(e.Root, args)
 			if err != nil {
 				return err
 			}
-			cell, err := engine.ParseCellArgs(path, args[1], args[2])
-			if err != nil {
-				return err
-			}
-			if len(args) == 3 {
-				for _, k := range e.IgnoredKeys(cell) {
-					c.Println(k)
+			if len(rest) == 1 {
+				if err := e.Ignore(cell, rest[0]); err != nil {
+					return err
 				}
-				return nil
+				if !jsonFlag {
+					c.Printf("ignoring %s in %s\n", rest[0], cell)
+					return nil
+				}
 			}
-			if err := e.Ignore(cell, args[3]); err != nil {
-				return err
+			ignored := e.IgnoredKeys(cell)
+			if jsonFlag {
+				if ignored == nil {
+					ignored = []string{}
+				}
+				return printJSON(c, struct {
+					cellJSON
+					Ignored []string `json:"ignored"`
+				}{toCellJSON(cell), ignored})
 			}
-			c.Printf("ignoring %s in %s\n", args[3], cell)
+			for _, k := range ignored {
+				c.Println(k)
+			}
 			return nil
 		},
 	}
@@ -51,29 +61,32 @@ func NewIgnoreCmd() *cobra.Command {
 // NewUnignoreCmd clears a variable's ignore marker.
 func NewUnignoreCmd() *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "unignore <path> <env> <buildtime|runtime> <KEY>",
+		Use:   "unignore " + cellArgs + " <KEY>",
 		Short: "Resume managing a previously ignored variable",
-		Args:  cobra.ExactArgs(4),
+		Long:  "Clear KEY's ignore marker so it is captured into the store on the next sync.\n\n" + cellArgsHelp,
+		Args:  cellArgCount(1, 1),
 		RunE: func(c *cobra.Command, args []string) error {
 			e, err := engine.Open(sshKeyFlag)
 			if err != nil {
 				return err
 			}
 			if !e.Initialized() {
-				return fmt.Errorf("store not initialized (run 'ward init')")
+				return errNotInitialized
 			}
-			path, err := relToRoot(e.Root, args[0])
+			cell, rest, err := parseCellRef(e.Root, args)
 			if err != nil {
 				return err
 			}
-			cell, err := engine.ParseCellArgs(path, args[1], args[2])
-			if err != nil {
+			if err := e.Unignore(cell, rest[0]); err != nil {
 				return err
 			}
-			if err := e.Unignore(cell, args[3]); err != nil {
-				return err
+			if jsonFlag {
+				return printJSON(c, struct {
+					cellJSON
+					Key string `json:"key"`
+				}{toCellJSON(cell), rest[0]})
 			}
-			c.Printf("no longer ignoring %s in %s\n", args[3], cell)
+			c.Printf("no longer ignoring %s in %s\n", rest[0], cell)
 			return nil
 		},
 	}

@@ -16,6 +16,13 @@ import (
 
 const pass = "test-passphrase-123"
 
+func TestMain(m *testing.M) {
+	restore := crypto.SetScryptWorkFactorForTesting(4)
+	code := m.Run()
+	restore()
+	os.Exit(code)
+}
+
 // newRepo creates a throwaway git repo (via go-git, no git binary) and returns
 // its root.
 func newRepo(t *testing.T) (string, *git.Repository) {

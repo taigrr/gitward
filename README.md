@@ -88,7 +88,7 @@ ward install
 
 ## ⚡ Requirements
 
-- Go >= **1.26** (to build)
+- Go >= **1.27** (to build)
 - `git` on `PATH` (used by the pre-commit hook to stage the store)
 - Optional: `gpg` with gpg-agent (for the gpg unlock path)
 - Optional: an ssh key at `~/.ssh/id_ed25519` or `~/.ssh/id_rsa` (for the ssh unlock path)

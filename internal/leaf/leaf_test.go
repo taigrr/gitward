@@ -101,3 +101,37 @@ func TestSerializeWithIgnored(t *testing.T) {
 		t.Fatalf("round trip lost data: %#v", got)
 	}
 }
+
+func TestSerializeQuotedValuesRoundTrip(t *testing.T) {
+	for _, value := range []string{
+		`a"b`, `say "hello"`, `C:\Users\name`, `ends with \`,
+		`literal \n`, `\"`, `single'quote`, " padded ",
+	} {
+		t.Run(value, func(t *testing.T) {
+			for _, ignored := range []bool{false, true} {
+				values := map[string]string{"SECRET": value}
+				content := Serialize(values)
+				if ignored {
+					content = SerializeWithIgnored(nil, values)
+				}
+				got, err := Parse(content)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if got["SECRET"] != value {
+					t.Errorf("ignored=%v: got %q, want %q", ignored, got["SECRET"], value)
+				}
+			}
+		})
+	}
+}
+
+func TestParseSingleQuotedBackslashes(t *testing.T) {
+	got, err := Parse(`SECRET='literal\" and \\'`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["SECRET"] != `literal\" and \\` {
+		t.Fatalf("single-quoted value changed: %q", got["SECRET"])
+	}
+}

@@ -76,8 +76,21 @@ func Parse(content string) (map[string]string, error) {
 
 func unquote(s string) string {
 	if len(s) >= 2 {
-		if (s[0] == '"' && s[len(s)-1] == '"') || (s[0] == '\'' && s[len(s)-1] == '\'') {
+		if s[0] == '\'' && s[len(s)-1] == '\'' {
 			return s[1 : len(s)-1]
+		}
+		if s[0] == '"' && s[len(s)-1] == '"' {
+			// Decode only the escapes emitted by quote. Other backslash
+			// sequences (such as literal \n in a path) stay untouched.
+			var value strings.Builder
+			for index := 1; index < len(s)-1; index++ {
+				if s[index] == '\\' && index+1 < len(s)-1 &&
+					(s[index+1] == '\\' || s[index+1] == '"') {
+					index++
+				}
+				value.WriteByte(s[index])
+			}
+			return value.String()
 		}
 	}
 	return s
@@ -129,8 +142,8 @@ func quote(v string) string {
 	if v == "" {
 		return v
 	}
-	if strings.ContainsAny(v, " \t\"'#\n") {
-		return `"` + strings.ReplaceAll(v, `"`, `\"`) + `"`
+	if strings.ContainsAny(v, " \t\"'#\n\\") {
+		return `"` + strings.NewReplacer(`\`, `\\`, `"`, `\"`).Replace(v) + `"`
 	}
 	return v
 }

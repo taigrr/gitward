@@ -79,7 +79,9 @@ func ErrorHandler(w io.Writer, styles fang.Styles, err error) {
 		return
 	}
 	if jsonFlag {
-		writeJSON(os.Stderr, map[string]string{"error": err.Error(), "kind": errorKind(err)})
+		if writeErr := writeJSON(os.Stderr, map[string]string{"error": err.Error(), "kind": errorKind(err)}); writeErr != nil {
+			fang.DefaultErrorHandler(w, styles, errors.Join(err, fmt.Errorf("writing JSON error: %w", writeErr)))
+		}
 		return
 	}
 	fang.DefaultErrorHandler(w, styles, err)

@@ -20,7 +20,7 @@ func FetchGitHubKeys(username string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("fetching %s: %w", url, err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }() // Read errors are handled below.
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("fetching %s: status %d", url, resp.StatusCode)
 	}

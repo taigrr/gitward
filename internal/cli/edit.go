@@ -43,12 +43,18 @@ func NewEditCmd() *cobra.Command {
 				return err
 			}
 			tmpPath := tmp.Name()
-			defer os.Remove(tmpPath)
+			defer func() {
+				if err := os.Remove(tmpPath); err != nil && !os.IsNotExist(err) {
+					c.PrintErrf("warning: removing temporary secrets file %s: %v\n", tmpPath, err)
+				}
+			}()
 			if _, err := tmp.WriteString(leaf.Serialize(vals)); err != nil {
-				tmp.Close()
+				_ = tmp.Close() // Preserve the write error.
 				return err
 			}
-			tmp.Close()
+			if err := tmp.Close(); err != nil {
+				return fmt.Errorf("closing temporary secrets file: %w", err)
+			}
 
 			if err := runEditor(tmpPath); err != nil {
 				return err

@@ -41,8 +41,29 @@ func TestParseRoundTrip(t *testing.T) {
 }
 
 func TestParseError(t *testing.T) {
-	if _, err := Parse("NOEQUALS\n"); err == nil {
-		t.Fatal("expected error for line without '='")
+	cases := []struct {
+		name    string
+		content string
+		want    string
+	}{
+		{"missing equals", "NOEQUALS\n", "line 1: missing '='"},
+		{"secret on malformed line", "# comment\nVALID=value\nprivate-token-without-equals\n", "line 3: missing '='"},
+		{"exported malformed line", "export private-token-without-equals\n", "line 1: missing '='"},
+		{"empty key", "=private-token\n", "line 1: empty key"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			values, err := Parse(tc.content)
+			if err == nil {
+				t.Fatal("expected parse error")
+			}
+			if err.Error() != tc.want {
+				t.Errorf("error = %q, want %q (without input content)", err, tc.want)
+			}
+			if values != nil {
+				t.Fatal("parse error returned partial values")
+			}
+		})
 	}
 }
 

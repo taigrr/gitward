@@ -58,7 +58,7 @@ func Parse(content string) (map[string]string, error) {
 		line = strings.TrimPrefix(line, "export ")
 		eq := strings.IndexByte(line, '=')
 		if eq < 0 {
-			return nil, fmt.Errorf("line %d: missing '=' in %q", ln, line)
+			return nil, fmt.Errorf("line %d: missing '='", ln)
 		}
 		key := strings.TrimSpace(line[:eq])
 		if key == "" {
